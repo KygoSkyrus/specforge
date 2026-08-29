@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+    scrape_configs:
+      - job_name: 'specforge-api'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - specforge
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: specforge
+          - source_labels: [__meta_kubernetes_pod_label_component]
+            action: keep
+            regex: api
+          - source_labels: [__meta_kubernetes_pod_container_port_name]
+            action: keep
+            regex: metrics
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: specforge-api
+  namespace: specforge
+spec:
+  selector:
+    matchLabels:
+      app: specforge
+      component: api
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: specforge-alerts
+  namespace: specforge
+spec:
+  groups:
+    - name: specforge
+      interval: 30s
+      rules:
+        - alert: SpecForgeHighErrorRate
+          expr: rate(http_request_duration_seconds_count{status=~"5.."}[5m]) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "High error rate detected in {{ $labels.instance }}"
+            description: "Error rate is {{ $value | humanizePercentage }}"
+
+        - alert: SpecForgeHighLatency
+          expr: histogram_quantile(0.95, http_request_duration_seconds) > 2
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High API latency detected"
+            description: "p95 latency is {{ $value }}s"
+
+        - alert: SpecForgeQueueBacklog
+          expr: bullmq_queue_waiting > 100
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "BullMQ queue backlog high"
+            description: "{{ $value }} jobs waiting in queue"
+
+        - alert: SpecForgePostgresConnectionPoolExhausted
+          expr: pg_stat_activity_count{state="active"} > 18
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Postgres connection pool near exhaustion"
+            description: "{{ $value }} connections active (limit: 20)"
+
+        - alert: SpecForgeAiCostBudgetExceeded
+          expr: ai_run_monthly_cost_usd > ai_run_monthly_budget_usd
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "AI cost budget exceeded for org {{ $labels.org_id }}"
+            description: "Cost: ${{ $value | humanize }}"

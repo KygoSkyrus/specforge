@@ -1,0 +1,1000 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+enum Role {
+  owner
+  admin
+  editor
+  reviewer
+  viewer
+}
+
+enum ProjectStatus {
+  draft
+  active
+  archived
+  won
+  lost
+}
+
+enum SpecStatus {
+  draft
+  review
+  approved
+  archived
+}
+
+enum SuggestionState {
+  pending
+  accepted
+  rejected
+}
+
+enum BriefKind {
+  text
+  file
+  transcript
+  voice
+}
+
+enum ReqKind {
+  functional
+  non_functional
+  constraint
+  assumption
+  out_of_scope
+}
+
+enum Moscow {
+  must
+  should
+  could
+  wont
+}
+
+enum StoryStatus {
+  backlog
+  selected_for_dev
+  in_progress
+  in_review
+  done
+  blocked
+}
+
+enum EstimateUnit {
+  story_points
+  hours
+  days
+}
+
+enum EstimateConfidence {
+  very_low
+  low
+  medium
+  high
+  very_high
+}
+
+enum PlanStatus {
+  draft
+  finalized
+  archived
+}
+
+enum DealRoomStatus {
+  draft
+  shared
+  archived
+}
+
+enum FindingSeverity {
+  info
+  warning
+  critical
+}
+
+enum FindingCategory {
+  ambiguity
+  security
+  scalability
+  observability
+  delivery_risk
+}
+
+enum ReviewPackKind {
+  ambiguity
+  security
+  scalability
+  observability
+  delivery_risk
+}
+
+enum IntegrationProvider {
+  linear
+  trello
+  slack
+  jira
+  github
+}
+
+enum PushJobStatus {
+  pending
+  in_progress
+  completed
+  failed
+  partially_failed
+}
+
+enum NotificationChannel {
+  slack
+  email
+  in_app
+}
+
+enum NotificationEventType {
+  spec_published
+  version_diff
+  critical_finding
+  milestone_at_risk
+  deal_room_opened
+  story_completed
+  daily_digest
+  weekly_digest
+}
+
+model Org {
+  id        String   @id @default(cuid())
+  name      String
+  plan      String   @default("free")
+  createdAt DateTime @default(now())
+
+  memberships Membership[]
+  workspaces  Workspace[]
+  projects    Project[]
+  auditLogs   AuditLog[]
+
+  @@map("orgs")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  image         String?
+  emailVerified DateTime?
+
+  memberships Membership[]
+  accounts    Account[]
+  sessions    Session[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model Membership {
+  id     String @id @default(cuid())
+  orgId  String
+  userId String
+  role   Role   @default(viewer)
+
+  org  Org  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, userId])
+  @@index([orgId])
+  @@map("memberships")
+}
+
+model Workspace {
+  id          String @id @default(cuid())
+  orgId       String
+  name        String
+  themeTokens Json?
+
+  org      Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projects Project[]
+
+  @@index([orgId])
+  @@map("workspaces")
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  orgId       String
+  workspaceId String
+  name        String
+  clientName  String?
+  status      ProjectStatus @default(draft)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  org       Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  specs     Spec[]
+  briefs    Brief[]
+
+  @@index([orgId])
+  @@index([workspaceId])
+  @@map("projects")
+}
+
+model Brief {
+  id         String    @id @default(cuid())
+  orgId      String
+  projectId  String
+  kind       BriefKind
+  raw        String    @db.Text
+  storageKey String?
+  createdAt  DateTime  @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([projectId])
+  @@map("briefs")
+}
+
+model Spec {
+  id             String     @id @default(cuid())
+  orgId          String
+  projectId      String
+  title          String
+  status         SpecStatus @default(draft)
+  currentVersion Int        @default(0)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requirements Requirement[]
+  versions     SpecVersion[]
+  suggestions  Suggestion[]
+  aiRuns       AiRun[]
+
+  @@index([orgId])
+  @@index([projectId])
+  @@map("specs")
+}
+
+model SpecVersion {
+  id        String   @id @default(cuid())
+  orgId     String
+  specId    String
+  version   Int
+  hash      String
+  snapshot  Json
+  summary   String?
+  createdBy String
+  createdAt DateTime @default(now())
+
+  spec Spec @relation(fields: [specId], references: [id], onDelete: Cascade)
+
+  @@unique([specId, version])
+  @@index([orgId])
+  @@map("spec_versions")
+}
+
+model Requirement {
+  id             String  @id @default(cuid())
+  orgId          String
+  specId         String
+  key            String
+  kind           ReqKind
+  title          String
+  body           String  @db.Text
+  priority       Moscow
+  ambiguityScore Float   @default(0)
+  openQuestions  Json    @default("[]")
+  sourceRefs     Json    @default("[]")
+  order          Int     @default(0)
+
+  spec Spec @relation(fields: [specId], references: [id], onDelete: Cascade)
+
+  @@unique([specId, key])
+  @@index([orgId])
+  @@index([specId])
+  @@map("requirements")
+}
+
+model Suggestion {
+  id       String          @id @default(cuid())
+  orgId    String
+  specId   String
+  target   String
+  payload  Json
+  state    SuggestionState @default(pending)
+  aiRunId  String
+  feedback String?
+
+  spec  Spec  @relation(fields: [specId], references: [id], onDelete: Cascade)
+  aiRun AiRun @relation(fields: [aiRunId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([specId])
+  @@map("suggestions")
+}
+
+model AiRun {
+  id               String  @id @default(cuid())
+  orgId            String
+  specId           String?
+  kind             String
+  template         String
+  model            String
+  status           String  @default("queued")
+  promptTokens     Int?
+  completionTokens Int?
+  costUsd          Decimal? @db.Decimal(10, 6)
+  latencyMs        Int?
+  error            String?
+
+  spec        Spec?        @relation(fields: [specId], references: [id], onDelete: SetNull)
+  suggestions Suggestion[]
+
+  @@index([orgId])
+  @@map("ai_runs")
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  orgId        String
+  actorId      String?
+  action       String
+  resourceType String
+  resourceId   String
+  beforeHash   String?
+  afterHash    String?
+  ip           String?
+  ua           String?
+  at           DateTime @default(now())
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([at])
+  @@map("audit_logs")
+}
+
+// ============================================================================
+// P2: Stories & Traceability
+// ============================================================================
+
+model Story {
+  id              String      @id @default(cuid())
+  orgId           String
+  specId          String
+  requirementId   String
+  title           String
+  description     String      @db.Text
+  status          StoryStatus @default(backlog)
+  moscow          Moscow
+  module          String?
+  order           Int         @default(0)
+  dependsOnIds    Json        @default("[]") // Story IDs
+  acceptance      AcceptanceCriterion[]
+  estimates       Estimate[]
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  spec Spec @relation(fields: [specId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([specId])
+  @@index([requirementId])
+  @@map("stories")
+}
+
+model AcceptanceCriterion {
+  id           String  @id @default(cuid())
+  orgId        String
+  storyId      String
+  kind         String  @default("gherkin") // gherkin | checklist
+  body         String  @db.Text
+  testableScore Float  @default(0.5)
+  order        Int     @default(0)
+
+  story Story @relation(fields: [storyId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([storyId])
+  @@map("acceptance_criteria")
+}
+
+model Estimate {
+  id          String              @id @default(cuid())
+  orgId       String
+  storyId     String
+  unit        EstimateUnit        @default(story_points)
+  value       Float
+  confidence  EstimateConfidence  @default(medium)
+  basis       String              @db.Text
+  createdBy   String
+  createdAt   DateTime            @default(now())
+
+  story Story @relation(fields: [storyId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([storyId])
+  @@map("estimates")
+}
+
+// ============================================================================
+// P3: Delivery Plan & Scheduling
+// ============================================================================
+
+model DeliveryPlan {
+  id                    String    @id @default(cuid())
+  orgId                 String
+  projectId             String
+  status                PlanStatus @default(draft)
+  team                  Json      // [{role: string, count: number, allocationPct: number}]
+  velocityPointsPerWeek Float
+  startDate             DateTime
+  calendar              Json      // {holidays: [], workDays: [0-6]}
+  buffers               Json      // {riskPct: number, qaPct: number}
+  totalCostUsd          Decimal?  @db.Decimal(12, 2)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  archivedAt            DateTime?
+
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  phases    Phase[]
+  costBreakdown CostBreakdown[]
+
+  @@index([orgId])
+  @@index([projectId])
+  @@map("delivery_plans")
+}
+
+model Phase {
+  id              String   @id @default(cuid())
+  orgId           String
+  planId          String
+  order           Int
+  name            String
+  startDate       DateTime
+  endDate         DateTime
+  deliverables    Json     @default("[]") // string[]
+  demoNote        String   @db.Text
+  createdAt       DateTime @default(now())
+
+  plan      DeliveryPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  milestones Milestone[]
+
+  @@index([orgId])
+  @@index([planId])
+  @@map("phases")
+}
+
+model Milestone {
+  id            String   @id @default(cuid())
+  orgId         String
+  phaseId       String
+  projectId     String
+  order         Int
+  name          String
+  targetDate    DateTime
+  demoNote      String   @db.Text
+  deliverables  Json     @default("[]") // {storyId, deliverableType}[]
+  createdAt     DateTime @default(now())
+
+  phase   Phase   @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([phaseId])
+  @@map("milestones")
+}
+
+model CostBreakdown {
+  id          String   @id @default(cuid())
+  orgId       String
+  planId      String
+  phaseId     String?
+  role        String
+  allocation  Float    // percentage
+  dailyRate   Decimal  @db.Decimal(10, 2)
+  durationDays Float
+  totalCost   Decimal  @db.Decimal(12, 2)
+  currency    String   @default("USD")
+  createdAt   DateTime @default(now())
+
+  plan DeliveryPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([planId])
+  @@map("cost_breakdowns")
+}
+
+// ============================================================================
+// P4: Diagrams & API Design
+// ============================================================================
+
+model Diagram {
+  id          String   @id @default(cuid())
+  orgId       String
+  specId      String
+  kind        String   // user_journey | system_context | sequence | erd | phase_map
+  title       String
+  source      String   @db.Text // Mermaid source
+  svg         String?  @db.Text // Cached rendered SVG
+  svgHash     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  spec Spec @relation(fields: [specId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([specId])
+  @@map("diagrams")
+}
+
+model ApiEndpoint {
+  id          String   @id @default(cuid())
+  orgId       String
+  specId      String
+  path        String
+  method      String   // GET | POST | PUT | PATCH | DELETE
+  summary     String
+  description String?  @db.Text
+  parameters  Json     // OpenAPI parameters
+  requestBody Json?    // OpenAPI schema
+  responses   Json     // {statusCode: {description, schema}}
+  tags        String[] @default([])
+  createdAt   DateTime @default(now())
+
+  spec Spec @relation(fields: [specId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([specId])
+  @@map("api_endpoints")
+}
+
+model Entity {
+  id          String   @id @default(cuid())
+  orgId       String
+  specId      String
+  name        String
+  description String?  @db.Text
+  fields      Json     // {name, type, required, description}[]
+  createdAt   DateTime @default(now())
+
+  spec Spec @relation(fields: [specId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([specId])
+  @@map("entities")
+}
+
+// ============================================================================
+// P5: Deal Room & Sharing
+// ============================================================================
+
+model DealRoom {
+  id              String        @id @default(cuid())
+  orgId           String
+  projectId       String
+  title           String
+  slug            String        @unique
+  status          DealRoomStatus @default(draft)
+  sections        Json          @default("[]") // {type, enabled, order}[]
+  themeTokens     Json?         // Custom branding
+  password        String?
+  requiresApproval Boolean      @default(false)
+  expiresAt       DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  project    Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  shareLinks ShareLink[]
+  comments   Comment[]
+  approvals  Approval[]
+  viewEvents ViewEvent[]
+
+  @@index([orgId])
+  @@index([projectId])
+  @@index([slug])
+  @@map("deal_rooms")
+}
+
+model ShareLink {
+  id          String   @id @default(cuid())
+  orgId       String
+  dealRoomId  String
+  token       String   @unique @default(cuid())
+  password    String?
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdBy   String
+  createdAt   DateTime @default(now())
+
+  dealRoom  DealRoom   @relation(fields: [dealRoomId], references: [id], onDelete: Cascade)
+  viewEvents ViewEvent[]
+
+  @@index([orgId])
+  @@index([dealRoomId])
+  @@map("share_links")
+}
+
+model Comment {
+  id          String   @id @default(cuid())
+  orgId       String
+  dealRoomId  String
+  authorId    String
+  body        String   @db.Text
+  sectionRef  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  dealRoom DealRoom @relation(fields: [dealRoomId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([dealRoomId])
+  @@map("comments")
+}
+
+model Approval {
+  id              String   @id @default(cuid())
+  orgId           String
+  dealRoomId      String
+  approvedBy      String
+  approvedAt      DateTime @default(now())
+  snapshotVersion Int
+  signatureBase64 String?  @db.Text
+  notes           String   @db.Text
+
+  dealRoom DealRoom @relation(fields: [dealRoomId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([dealRoomId])
+  @@map("approvals")
+}
+
+model ViewEvent {
+  id          String   @id @default(cuid())
+  orgId       String
+  shareLinkId String
+  dealRoomId  String
+  viewedAt    DateTime @default(now())
+  userAgent   String?
+  scrollDepth Float?
+  timeSpentSec Int?
+
+  shareLink ShareLink @relation(fields: [shareLinkId], references: [id], onDelete: Cascade)
+  dealRoom  DealRoom  @relation(fields: [dealRoomId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([shareLinkId])
+  @@map("view_events")
+}
+
+// ============================================================================
+// P6: Integrations
+// ============================================================================
+
+model IntegrationCredential {
+  id              String    @id @default(cuid())
+  orgId           String
+  provider        IntegrationProvider
+  encryptedToken  String    @db.Text
+  refreshToken    String?   @db.Text
+  expiresAt       DateTime?
+  scopes          String[]
+  metadata        Json      // provider-specific settings
+  lastSyncAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, provider])
+  @@index([orgId])
+  @@map("integration_credentials")
+}
+
+model IntegrationMapping {
+  id                 String   @id @default(cuid())
+  orgId              String
+  projectId          String
+  provider           IntegrationProvider
+  externalProjectId  String
+  externalProjectName String
+  fieldMappings      Json     // {specField: externalField}
+  labelMappings      Json     // {label: externalLabel}[]
+  estimateScale      String?  // e.g., "1-5", "0-40"
+  cycleMapping       String?  // Jira cycle field name
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([projectId])
+  @@map("integration_mappings")
+}
+
+model PushJob {
+  id               String        @id @default(cuid())
+  orgId            String
+  projectId        String
+  provider         IntegrationProvider
+  status           PushJobStatus @default(pending)
+  totalItems       Int
+  itemsPushed      Int           @default(0)
+  itemsFailed      Int           @default(0)
+  externalIds      Json          // {localId: externalId}
+  errorLog         Json?         // [{itemId, error}]
+  startedAt        DateTime      @default(now())
+  completedAt      DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([projectId])
+  @@index([status])
+  @@map("push_jobs")
+}
+
+// ============================================================================
+// P7: Review Packs & Quality
+// ============================================================================
+
+model ReviewRun {
+  id        String          @id @default(cuid())
+  orgId     String
+  specId    String
+  kind      ReviewPackKind
+  status    String          @default("queued") // queued | running | completed | failed
+  findings  Finding[]
+  createdAt DateTime        @default(now())
+  completedAt DateTime?
+
+  spec Spec @relation(fields: [specId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([specId])
+  @@map("review_runs")
+}
+
+model Finding {
+  id             String          @id @default(cuid())
+  orgId          String
+  reviewRunId    String
+  category       FindingCategory
+  severity       FindingSeverity
+  requirementRef String?
+  rationale      String          @db.Text
+  suggestedPatch Json?
+  resolved       Boolean         @default(false)
+  resolvedAt     DateTime?
+  createdAt      DateTime        @default(now())
+
+  reviewRun ReviewRun @relation(fields: [reviewRunId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([reviewRunId])
+  @@map("findings")
+}
+
+// ============================================================================
+// Observability & Cost Tracking
+// ============================================================================
+
+model AiRunResult {
+  id               String   @id @default(cuid())
+  orgId            String
+  aiRunId          String
+  tokenCount       Int
+  costUsd          Decimal  @db.Decimal(10, 6)
+  durationMs       Int
+  retries          Int      @default(0)
+  validationErrors Json     @default("[]")
+  createdAt        DateTime @default(now())
+
+  aiRun AiRun @relation("results", fields: [aiRunId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([aiRunId])
+  @@map("ai_run_results")
+}
+
+model RateLimitBucket {
+  id        String   @id @default(cuid())
+  orgId     String
+  key       String   // userId_endpoint_window
+  count     Int      @default(0)
+  window    String   // ISO8601 duration
+  expiresAt DateTime
+
+  @@unique([orgId, key, window])
+  @@index([orgId])
+  @@index([expiresAt])
+  @@map("rate_limit_buckets")
+}
+
+model NotificationPreference {
+  id               String   @id @default(cuid())
+  orgId            String
+  userId           String
+  channel          NotificationChannel
+  eventTypes       NotificationEventType[]
+  slackChannelId   String?
+  slackUserId      String?
+  emailAddress     String?
+  enabledAt        DateTime @default(now())
+  disabledAt       DateTime?
+
+  @@index([orgId])
+  @@index([userId])
+  @@map("notification_preferences")
+}
+
+model PromptCacheEntry {
+  hash        String   @id // SHA256(template + model + contextHash)
+  model       String
+  templateVersion String
+  cachedOutput String   @db.Text
+  tokens      Int
+  costUsd     Decimal  @db.Decimal(10, 6)
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([expiresAt])
+  @@map("prompt_cache")
+}
+
+model OrgBudget {
+  id               String   @id @default(cuid())
+  orgId            String   @unique
+  monthlyLimitUsd  Decimal? @db.Decimal(12, 2)
+  warnThresholdPct Float    @default(80) // Warn at 80% of limit
+  hardStopEnabled  Boolean  @default(false)
+  currentMonthCost Decimal  @default(0) @db.Decimal(12, 2)
+  updatedAt        DateTime @updatedAt
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("org_budgets")
+}
+
+// Extend Org, Project, Spec, User to add relations
+model Org {
+  id        String   @id @default(cuid())
+  name      String
+  plan      String   @default("free")
+  createdAt DateTime @default(now())
+
+  memberships     Membership[]
+  workspaces      Workspace[]
+  projects        Project[]
+  auditLogs       AuditLog[]
+  budget          OrgBudget?
+  integrations    IntegrationCredential[]
+  integrationMappings IntegrationMapping[]
+  pushJobs        PushJob[]
+
+  @@map("orgs")
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  orgId       String
+  workspaceId String
+  name        String
+  clientName  String?
+  status      ProjectStatus @default(draft)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  org       Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  specs     Spec[]
+  briefs    Brief[]
+  stories   Story[]
+  deliveryPlans DeliveryPlan[]
+  milestones Milestone[]
+  dealRooms DealRoom[]
+  integrationMappings IntegrationMapping[]
+  pushJobs  PushJob[]
+  apiEndpoints ApiEndpoint[]
+  entities  Entity[]
+
+  @@index([orgId])
+  @@index([workspaceId])
+  @@map("projects")
+}
+
+model Spec {
+  id             String     @id @default(cuid())
+  orgId          String
+  projectId      String
+  title          String
+  status         SpecStatus @default(draft)
+  currentVersion Int        @default(0)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requirements Requirement[]
+  versions     SpecVersion[]
+  suggestions  Suggestion[]
+  aiRuns       AiRun[]
+  stories      Story[]
+  diagrams     Diagram[]
+  apiEndpoints ApiEndpoint[]
+  entities     Entity[]
+  reviewRuns   ReviewRun[]
+
+  @@index([orgId])
+  @@index([projectId])
+  @@map("specs")
+}
+
+model AiRun {
+  id               String  @id @default(cuid())
+  orgId            String
+  specId           String?
+  kind             String
+  template         String
+  model            String
+  status           String  @default("queued")
+  promptTokens     Int?
+  completionTokens Int?
+  costUsd          Decimal? @db.Decimal(10, 6)
+  latencyMs        Int?
+  error            String?
+  createdAt        DateTime @default(now())
+
+  spec        Spec?        @relation(fields: [specId], references: [id], onDelete: SetNull)
+  suggestions Suggestion[]
+  results     AiRunResult[] @relation("results")
+
+  @@index([orgId])
+  @@map("ai_runs")
+}
