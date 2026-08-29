@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+@theme {
+  --font-ui: Inter Tight, system-ui, sans-serif;
+  --font-mono: JetBrains Mono, monospace;
+}
+
+html,
+body {
+  font-family: var(--font-ui);
+  background: var(--sf-canvas);
+  color: var(--sf-text-primary);
+}
+
+/* Blueprint grid texture for planning surfaces */
+.blueprint-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+@keyframes shimmer {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.caret-shimmer::after {
+  content: '▋';
+  animation: shimmer 1s ease-in-out infinite;
+  color: var(--sf-accent-from);
+}

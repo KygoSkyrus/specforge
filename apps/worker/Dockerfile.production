@@ -1,0 +1,38 @@
+# Production Dockerfile for SpecForge Worker (BullMQ)
+
+FROM node:20.14-alpine AS base
+RUN apk add --no-cache python3 make g++ ca-certificates openssl
+WORKDIR /app
+
+FROM base AS dependencies
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+RUN npm install -g pnpm@9.15.0 && pnpm install --frozen-lockfile --prod
+
+FROM base AS builder
+RUN npm install -g pnpm@9.15.0
+COPY . .
+RUN pnpm install --frozen-lockfile
+RUN pnpm build --filter=@specforge/worker
+RUN pnpm db:generate --filter=@specforge/worker
+
+FROM node:20.14-alpine AS runtime
+RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
+WORKDIR /app
+
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY --from=builder /app/apps/worker/dist ./dist
+COPY --from=builder /app/apps/worker/package.json ./
+COPY --from=builder /app/apps/worker/prisma ./prisma
+
+RUN chown -R nodejs:nodejs /app
+USER nodejs
+
+EXPOSE 6379
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+  CMD node -e "console.log('healthy')" || exit 1
+
+LABEL org.opencontainers.image.title="SpecForge Worker"
+LABEL org.opencontainers.image.version="1.0.0"
+
+CMD ["node", "dist/main.js"]
